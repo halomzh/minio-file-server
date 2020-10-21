@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"gopkg.in/yaml.v2"
 	"io"
+	"io/ioutil"
 	"log"
 	"minio-file-server/auth"
 	"minio-file-server/client"
@@ -11,11 +13,22 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 var defaultLogFile *os.File
 var errorLogFile *os.File
+
+type Config struct {
+	Port     string   `yaml:"Port"`
+	FileType []string `yaml:"FileType"`
+}
+
+var ApiConfig = &Config{
+	Port:     "9002",
+	FileType: []string{},
+}
 
 func main() {
 	router := gin.Default()
@@ -61,7 +74,18 @@ func main() {
 
 		for _, file := range files {
 			log.Println(file.Filename)
-
+			isAcceptFileType := false
+			for _, ft := range ApiConfig.FileType {
+				if strings.HasSuffix(file.Filename, ft) {
+					isAcceptFileType = true
+					break
+				}
+			}
+			if !isAcceptFileType {
+				c.JSON(200, common.GenFailResult().SetMessage("无效文件类型: "+file.Filename))
+				c.Abort()
+				return
+			}
 			fileNameTemp := os.TempDir() + "/" + file.Filename
 			c.SaveUploadedFile(file, fileNameTemp)
 			fileTemp, _ := os.Open(fileNameTemp)
@@ -121,6 +145,8 @@ func main() {
 }
 
 func init() {
+	ApiConfig.init()
+
 	logFileName := "./log/" + time.Now().Format("2006-01-02")
 	for i := 0; ; i++ {
 		logFileNameTemp := logFileName + "（" + strconv.Itoa(i) + "）"
@@ -134,4 +160,11 @@ func init() {
 	gin.DefaultWriter = io.MultiWriter(defaultLogFile)
 	gin.DefaultErrorWriter = io.MultiWriter(errorLogFile)
 
+}
+
+func (config *Config) init() {
+	configByte, err := ioutil.ReadFile("./config/api.yml")
+	common.CheckError(err)
+	err = yaml.Unmarshal(configByte, config)
+	common.CheckError(err)
 }
